@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "db:push": "npx drizzle-kit push"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +17,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
     "express-validator": "^7.3.1",
     "jsonwebtoken": "^9.0.3",
@@ -31,6 +33,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.8",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

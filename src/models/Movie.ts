@@ -1,6 +1,7 @@
-import pool from "../config/database";
-import { Movie } from "../utils/types";
-
+import { db } from "../config/database";
+import { movies, showtimes } from "../database/schema";
+import { eq, desc, sql } from "drizzle-orm";
+import type { Movie } from "../database/schema";
 
 export class MovieModel {
 
@@ -12,86 +13,105 @@ export class MovieModel {
         duration: number,
         release_date: Date
     ): Promise<Movie> {
-        const result = await pool.query(
-            `INSERT INTO movies (title, description, poster_image, genre, duration, release_date) 
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [title, description, poster_image, genre, duration, release_date]
-        );
-        return result.rows[0];
+        const [movie] = await db.insert(movies)
+            .values({
+                title,
+                description,
+                posterImage: poster_image,
+                genre,
+                duration,
+                releaseDate: release_date.toISOString().split('T')[0],
+            })
+            .returning();
+        return movie;
     }
 
     static async findById(id: number): Promise<Movie | null> {
-        const result = await pool.query('SELECT * FROM movies WHERE id = $1', [id]);
-        return result.rows[0] || null;
+        const [movie] = await db.select()
+            .from(movies)
+            .where(eq(movies.id, id));
+        return movie || null;
     }
 
     static async findAll(genre?: string): Promise<Movie[]> {
-        let query = 'SELECT * FROM movies';
-        const params: any[] = [];
-
         if (genre) {
-            query += ' WHERE genre = $1';
-            params.push(genre);
+            return await db.select()
+                .from(movies)
+                .where(eq(movies.genre, genre))
+                .orderBy(desc(movies.releaseDate));
         }
-
-        query += ' ORDER BY release_date DESC';
-        const result = await pool.query(query, params);
-        return result.rows;
+        return await db.select()
+            .from(movies)
+            .orderBy(desc(movies.releaseDate));
     }
 
-    static async update(id: number, updates: Partial<Omit<Movie, 'id' | 'created_at' | 'updated_at'>>): Promise<Movie> {
-        const fields: string[] = [];
-        const values: any[] = [];
-        let paramCount = 1;
-        Object.entries(updates).forEach(([key, value]) => {
-            fields.push(`${key} = $${paramCount}`);
-            values.push(value);
-            paramCount++;
-        });
-        values.push(id);
-        const result = await pool.query(
-            `UPDATE movies SET ${fields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-            values
-        );
-        return result.rows[0];
+    static async update(id: number, updates: Partial<Omit<Movie, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Movie> {
+        const updateData: Record<string, any> = { updatedAt: new Date() };
+
+        if (updates.title) updateData.title = updates.title;
+        if (updates.description) updateData.description = updates.description;
+        if (updates.posterImage) updateData.posterImage = updates.posterImage;
+        if (updates.genre) updateData.genre = updates.genre;
+        if (updates.duration) updateData.duration = updates.duration;
+        if (updates.releaseDate) updateData.releaseDate = updates.releaseDate;
+
+        const [movie] = await db.update(movies)
+            .set(updateData)
+            .where(eq(movies.id, id))
+            .returning();
+        return movie;
     }
 
     static async delete(id: number): Promise<boolean> {
-        const result = await pool.query('DELETE FROM movies WHERE id = $1', [id]);
-        return result.rowCount ? result.rowCount > 0 : false;
+        const result = await db.delete(movies)
+            .where(eq(movies.id, id))
+            .returning({ id: movies.id });
+        return result.length > 0;
     }
 
     static async getMoviesWithShowtimes(date?: string): Promise<any[]> {
-        let query = `
-        SELECT 
-            m.*,
-            json_agg(
-                json_build_object(
-                    'id', s.id,
-                    'start_time', s.start_time,
-                    'end_time', s.end_time,
-                    'price', s.price,
-                    'available_seats', s.available_seats,
-                    'total_seats', s.total_seats
-                ) ORDER BY s.start_time
-            ) FILTER (WHERE s.id IS NOT NULL) as showtimes
-        FROM movies m
-        LEFT JOIN showtimes s ON m.id = s.movie_id
-    `;
+        // Using raw SQL for complex aggregation query
+        const query = date
+            ? sql`
+                SELECT 
+                    m.*,
+                    json_agg(
+                        json_build_object(
+                            'id', s.id,
+                            'start_time', s.start_time,
+                            'end_time', s.end_time,
+                            'price', s.price,
+                            'available_seats', s.available_seats,
+                            'total_seats', s.total_seats
+                        ) ORDER BY s.start_time
+                    ) FILTER (WHERE s.id IS NOT NULL) as showtimes
+                FROM movies m
+                LEFT JOIN showtimes s ON m.id = s.movie_id
+                WHERE DATE(s.start_time) = ${date}
+                GROUP BY m.id 
+                ORDER BY m.title
+            `
+            : sql`
+                SELECT 
+                    m.*,
+                    json_agg(
+                        json_build_object(
+                            'id', s.id,
+                            'start_time', s.start_time,
+                            'end_time', s.end_time,
+                            'price', s.price,
+                            'available_seats', s.available_seats,
+                            'total_seats', s.total_seats
+                        ) ORDER BY s.start_time
+                    ) FILTER (WHERE s.id IS NOT NULL) as showtimes
+                FROM movies m
+                LEFT JOIN showtimes s ON m.id = s.movie_id
+                WHERE s.start_time >= CURRENT_TIMESTAMP
+                GROUP BY m.id 
+                ORDER BY m.title
+            `;
 
-        const params: any[] = [];
-
-        if (date) {
-            query += ` WHERE DATE(s.start_time) = $1`;
-            params.push(date);
-        } else {
-            query += ` WHERE s.start_time >= CURRENT_TIMESTAMP`;
-        }
-
-        query += ` GROUP BY m.id ORDER BY m.title`;
-
-        const result = await pool.query(query, params);
-        return result.rows;
+        const result = await db.execute(query);
+        return result.rows as any[];
     }
-
 }

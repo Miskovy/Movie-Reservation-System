@@ -1,5 +1,7 @@
 import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import dotenv from "dotenv";
+import * as schema from "../database/schema";
 
 dotenv.config();
 
@@ -23,4 +25,9 @@ pool.on('error', (err) => {
     process.exit(-1);
 });
 
+// Drizzle ORM instance
+export const db = drizzle(pool, { schema });
+
+// Export pool for raw queries and transactions when needed
+export { pool };
 export default pool;
